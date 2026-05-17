@@ -860,13 +860,19 @@ class SweepAlgo:
 
             consecutive_failures = 0
             running_profit = self.entry_premium - current_premium
-            running_pct = running_profit / self.max_profit if self.max_profit > 0 else 0
+            running_pct    = running_profit / self.max_profit if self.max_profit > 0 else 0
+            time_left      = (self.force_exit_time - now).total_seconds()
 
-            logger.debug(
+            # Log every poll cycle at INFO so cron log shows full live detail
+            logger.info(
+                f"[TICK] {self.option_type} {self.option_symbol} | "
                 f"mark={current_premium:.2f} | "
+                f"entry={self.entry_premium:.2f} | "
                 f"profit={running_profit:+.2f} ({running_pct*100:.1f}%) | "
                 f"SL={self.trail_tracker.sl_premium:.2f} | "
-                f"steps_done={self.trail_tracker.steps_activated}"
+                f"trail_steps={self.trail_tracker.steps_activated} | "
+                f"force_exit={self.force_exit_time.strftime('%H:%M')} "
+                f"({time_left/60:.1f}min left)"
             )
 
             # ── Update trail steps ─────────────────────────────────

@@ -542,11 +542,11 @@ class SweepAlgo:
             return False
         logger.info(f"Spot: ${spot:,.1f}")
 
-        # Retry up to 10 times (5s apart), fixed tolerance=20% each attempt
+        # Retry every 15s for up to 5 minutes (20 retries), fixed tolerance=20%
         # Refreshes option chain each retry in case prices moved into range
         option = None
-        MAX_STRIKE_RETRIES = 10
-        RETRY_SLEEP = 5
+        MAX_STRIKE_RETRIES = 20
+        RETRY_SLEEP = 15
 
         for attempt in range(1, MAX_STRIKE_RETRIES + 1):
             option = find_strike_by_premium(

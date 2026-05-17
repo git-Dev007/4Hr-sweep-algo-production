@@ -542,29 +542,26 @@ class SweepAlgo:
             return False
         logger.info(f"Spot: ${spot:,.1f}")
 
-        # Retry up to 10 times (5s apart) with tolerance widening by 2% each retry
-        # This handles cases where the closest strike is just outside the tolerance
+        # Retry up to 10 times (5s apart), fixed tolerance=20% each attempt
+        # Refreshes option chain each retry in case prices moved into range
         option = None
         MAX_STRIKE_RETRIES = 10
-        RETRY_SLEEP = 5          # seconds between retries
-        TOLERANCE_STEP = 0.02   # widen tolerance by 2% each retry
+        RETRY_SLEEP = 5
 
         for attempt in range(1, MAX_STRIKE_RETRIES + 1):
-            current_tolerance = PREMIUM_TOLERANCE + (attempt - 1) * TOLERANCE_STEP
             option = find_strike_by_premium(
-                tickers, contract_type, target_premium, current_tolerance
+                tickers, contract_type, target_premium, PREMIUM_TOLERANCE
             )
             if option is not None:
                 if attempt > 1:
                     logger.info(
-                        f"Strike found on retry {attempt}/{MAX_STRIKE_RETRIES} "
-                        f"with tolerance={current_tolerance*100:.0f}%"
+                        f"Strike found on retry {attempt}/{MAX_STRIKE_RETRIES}"
                     )
                 break
 
             logger.warning(
                 f"Strike not found (attempt {attempt}/{MAX_STRIKE_RETRIES}, "
-                f"tolerance={current_tolerance*100:.0f}%). "
+                f"tolerance={PREMIUM_TOLERANCE*100:.0f}%). "
                 f"Refreshing option chain and retrying in {RETRY_SLEEP}s..."
             )
             time.sleep(RETRY_SLEEP)
@@ -581,7 +578,7 @@ class SweepAlgo:
             self.trade_logger.log_event(
                 "NO_SIGNAL",
                 f"No suitable {signal} strike found after {MAX_STRIKE_RETRIES} retries "
-                f"(target={target_premium}, final_tolerance={PREMIUM_TOLERANCE + (MAX_STRIKE_RETRIES-1)*TOLERANCE_STEP:.0%})"
+                f"(target={target_premium}, tolerance={PREMIUM_TOLERANCE*100:.0f}%)"
             )
             return False
 

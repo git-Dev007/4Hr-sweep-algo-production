@@ -173,11 +173,15 @@ def evaluate_sweep(prev, last):
       'PE'  — only low swept  (expect rejection from lows  → sell put)
       None  — both or neither swept (no entry)
     """
-    # HIGH sweep: wick above prev high AND close back below prev high (rejection confirmed)
-    high_swept = last["high"] > prev["high"] and last["close"] < prev["high"]
+    # HIGH sweep: wick above prev high AND close at or below prev high (rejection confirmed)
+    # prev.high < last.high  → wick swept above prev high
+    # prev.high >= last.close → close came back to or below prev high
+    high_swept = prev["high"] < last["high"] and prev["high"] >= last["close"]
 
-    # LOW sweep: wick below prev low AND close back above prev low (rejection confirmed)
-    low_swept  = last["low"] < prev["low"] and last["close"] > prev["low"]
+    # LOW sweep: wick below prev low AND close at or above prev low (rejection confirmed)
+    # prev.low > last.low   → wick swept below prev low
+    # prev.low <= last.close → close came back to or above prev low
+    low_swept  = prev["low"] > last["low"] and prev["low"] <= last["close"]
 
     if high_swept and low_swept:
         logger.info(

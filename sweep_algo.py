@@ -409,6 +409,11 @@ class SweepAlgo:
 
         self._reset_position()
 
+        # Daily limits: reset each calendar day
+        self._current_trade_date = None   # set on first reset
+        self.daily_trades_taken = 0       # max 2 per day
+        self.daily_loss_occurred = False  # if True, no more entries today
+
     def _reset_position(self):
         self.product_id = None
         self.option_symbol = None
@@ -425,6 +430,17 @@ class SweepAlgo:
         self.spot_at_entry = 0.0
         self.nearest_expiry = None
         self.is_position_open = False
+
+    def _reset_daily_state(self):
+        """Reset per-day counters at the start of each new trading day."""
+        today = self.now().date()
+        self._current_trade_date = today
+        self.daily_trades_taken = 0
+        self.daily_loss_occurred = False
+        logger.info(
+            f"Daily state reset for {today} | "
+            "max_trades=2, loss_stop=enabled"
+        )
 
     def now(self):
         return datetime.now(self.tz)
@@ -493,6 +509,21 @@ class SweepAlgo:
 
         if self.is_position_open:
             logger.warning("Position already open — skipping new entry.")
+            return False
+
+        if self.daily_loss_occurred:
+            logger.info("Daily loss already occurred — no more entries today.")
+            self.trade_logger.log_event("NO_SIGNAL", "Daily loss stop — closed for day")
+            return False
+
+        if self.daily_trades_taken >= 2:
+            logger.info(
+                f"Daily trade limit reached ({self.daily_trades_taken}/2) — "
+                "no more entries today."
+            )
+            self.trade_logger.log_event(
+                "NO_SIGNAL", f"Daily limit 2/2 reached — closed for day"
+            )
             return False
 
         if not is_valid_entry_key(*candle_key):
@@ -806,6 +837,19 @@ class SweepAlgo:
         pnl_per_unit = self.entry_premium - exit_premium
         pnl_total_usd = pnl_per_unit * QUANTITY * CONTRACT_VALUE
 
+        # Update daily counters
+        self.daily_trades_taken += 1
+        if pnl_per_unit < 0:
+            self.daily_loss_occurred = True
+            logger.info(
+                f"Loss trade recorded (pnl={pnl_per_unit:+.2f}) — "
+                f"no more entries today ({self.daily_trades_taken}/2 trades taken)"
+            )
+        else:
+            logger.info(
+                f"Winning trade ({self.daily_trades_taken}/2 trades taken today)"
+            )
+
         exit_time = self.now()
         spot_at_exit = self._get_current_spot()
 
@@ -946,6 +990,10 @@ class SweepAlgo:
 
         while True:
             now = self.now()
+
+            # Reset daily counters when the calendar date changes
+            if self._current_trade_date != now.date():
+                self._reset_daily_state()
 
             if not self.is_position_open:
                 next_close = get_next_entry_candle_close(now)

@@ -173,31 +173,30 @@ def evaluate_sweep(prev, last):
       'PE'  — only low swept  (expect rejection from lows  → sell put)
       None  — both or neither swept (no entry)
     """
-    high_swept = last["high"] > prev["high"]
-    low_swept  = last["low"]  < prev["low"]
+    # HIGH sweep: wick above prev high AND close back below prev high (rejection confirmed)
+    high_swept = last["high"] > prev["high"] and last["close"] < prev["high"]
+
+    # LOW sweep: wick below prev low AND close back above prev low (rejection confirmed)
+    low_swept  = last["low"] < prev["low"] and last["close"] > prev["low"]
 
     if high_swept and low_swept:
         logger.info(
-            f"BOTH sides swept (H {last['high']:.1f}>{prev['high']:.1f}, "
-            f"L {last['low']:.1f}<{prev['low']:.1f}) → NO ENTRY"
+            f"BOTH sides swept & rejected -> NO ENTRY | H wick={last['high']:.1f}>prev_H={prev['high']:.1f} L wick={last['low']:.1f}<prev_L={prev['low']:.1f} close={last['close']:.1f}"
         )
         return None
     elif high_swept:
         logger.info(
-            f"HIGH swept ({last['high']:.1f} > {prev['high']:.1f}) | "
-            f"Low NOT swept ({last['low']:.1f} >= {prev['low']:.1f}) → SELL CE"
+            f"HIGH sweep confirmed: wick={last['high']:.1f}>prev_H={prev['high']:.1f}, close={last['close']:.1f}<prev_H (rejection) -> SELL CE"
         )
         return "CE"
     elif low_swept:
         logger.info(
-            f"LOW swept ({last['low']:.1f} < {prev['low']:.1f}) | "
-            f"High NOT swept ({last['high']:.1f} <= {prev['high']:.1f}) → SELL PE"
+            f"LOW sweep confirmed: wick={last['low']:.1f}<prev_L={prev['low']:.1f}, close={last['close']:.1f}>prev_L (rejection) -> SELL PE"
         )
         return "PE"
     else:
         logger.info(
-            f"No sweep (H {last['high']:.1f}<={prev['high']:.1f}, "
-            f"L {last['low']:.1f}>={prev['low']:.1f}) → NO ENTRY"
+            f"No confirmed sweep -> NO ENTRY | H={last['high']:.1f}(prev={prev['high']:.1f}) L={last['low']:.1f}(prev={prev['low']:.1f}) C={last['close']:.1f}"
         )
         return None
 

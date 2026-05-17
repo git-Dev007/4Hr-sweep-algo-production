@@ -542,11 +542,46 @@ class SweepAlgo:
             return False
         logger.info(f"Spot: ${spot:,.1f}")
 
-        option = find_strike_by_premium(tickers, contract_type, target_premium, PREMIUM_TOLERANCE)
+        # Retry up to 10 times (5s apart) with tolerance widening by 2% each retry
+        # This handles cases where the closest strike is just outside the tolerance
+        option = None
+        MAX_STRIKE_RETRIES = 10
+        RETRY_SLEEP = 5          # seconds between retries
+        TOLERANCE_STEP = 0.02   # widen tolerance by 2% each retry
+
+        for attempt in range(1, MAX_STRIKE_RETRIES + 1):
+            current_tolerance = PREMIUM_TOLERANCE + (attempt - 1) * TOLERANCE_STEP
+            option = find_strike_by_premium(
+                tickers, contract_type, target_premium, current_tolerance
+            )
+            if option is not None:
+                if attempt > 1:
+                    logger.info(
+                        f"Strike found on retry {attempt}/{MAX_STRIKE_RETRIES} "
+                        f"with tolerance={current_tolerance*100:.0f}%"
+                    )
+                break
+
+            logger.warning(
+                f"Strike not found (attempt {attempt}/{MAX_STRIKE_RETRIES}, "
+                f"tolerance={current_tolerance*100:.0f}%). "
+                f"Refreshing option chain and retrying in {RETRY_SLEEP}s..."
+            )
+            time.sleep(RETRY_SLEEP)
+
+            # Refresh option chain on each retry (prices may have moved)
+            try:
+                tickers, nearest_expiry = get_nearest_expiry_tickers(
+                    self.api, UNDERLYING_SYMBOL, now.date()
+                )
+            except Exception as e:
+                logger.warning(f"Option chain refresh failed: {e}")
+
         if option is None:
             self.trade_logger.log_event(
                 "NO_SIGNAL",
-                f"No suitable {signal} strike near premium {target_premium}"
+                f"No suitable {signal} strike found after {MAX_STRIKE_RETRIES} retries "
+                f"(target={target_premium}, final_tolerance={PREMIUM_TOLERANCE + (MAX_STRIKE_RETRIES-1)*TOLERANCE_STEP:.0%})"
             )
             return False
 

@@ -25,6 +25,7 @@ Time Exit: position force-closed at next 4H candle boundary
 No new entries at/after 17:30 IST
 """
 
+import os
 import time
 import logging
 import sys
@@ -1050,9 +1051,42 @@ class SweepAlgo:
 
 
 # ============================================================
+# PID Lock — prevents duplicate instances
+# ============================================================
+_PID_FILE = Path(__file__).resolve().parent / "sweep_algo.pid"
+
+def _acquire_pid_lock():
+    """Write PID file. Exit immediately if another instance is already running."""
+    if _PID_FILE.exists():
+        try:
+            existing_pid = int(_PID_FILE.read_text().strip())
+            # Check if that process is actually still alive
+            os.kill(existing_pid, 0)
+            # Still alive — refuse to start
+            print(
+                f"ERROR: Another instance is already running (PID {existing_pid}). "
+                f"PID file: {_PID_FILE}. "
+                "Kill it first with: pkill -f sweep_algo.py",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        except (ProcessLookupError, ValueError):
+            # Stale PID file — previous run crashed without cleanup
+            pass
+    _PID_FILE.write_text(str(os.getpid()))
+
+def _release_pid_lock():
+    try:
+        _PID_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+# ============================================================
 # Entry Point
 # ============================================================
 if __name__ == "__main__":
+    _acquire_pid_lock()
     setup_logging()
     algo = SweepAlgo()
     try:
@@ -1061,9 +1095,11 @@ if __name__ == "__main__":
         logger.info("Algo stopped by user (KeyboardInterrupt).")
         if algo.is_position_open:
             logger.warning(
-                f"⚠  Position still open: {algo.option_symbol}. "
+                f"Position still open: {algo.option_symbol}. "
                 "Please close manually on Delta Exchange!"
             )
     except Exception as exc:
         logger.critical(f"Algo crashed: {exc}", exc_info=True)
         sys.exit(1)
+    finally:
+        _release_pid_lock()

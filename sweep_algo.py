@@ -1059,30 +1059,33 @@ class SweepAlgo:
                 self.exit_position("TRAIL_EXIT (75% profit target reached)")
                 return
 
-            # ── Layer 2: Pre-liquidation safety exit ──────────────
-            # Exit immediately if mark price reaches 85% of liq price,
-            # before the exchange liquidates us — catches gap moves that
-            # skip past the software SL entirely.
-            if self.liq_price and current_premium >= self.liq_price * 0.85:
-                logger.critical(
-                    f"PRE-LIQ SAFETY EXIT | mark={current_premium:.2f} >= "
-                    f"85% of liq={self.liq_price:.2f} "
-                    f"(trigger={self.liq_price * 0.85:.2f})"
-                )
-                self.trade_logger.log_event(
-                    "PRE_LIQ_SAFETY",
-                    f"mark={current_premium:.2f} liq={self.liq_price:.2f}"
-                )
-                self.exit_position(
-                    f"PRE_LIQ_SAFETY (mark={current_premium:.2f} >= "
-                    f"85%_of_liq={self.liq_price * 0.85:.2f})"
-                )
-                return
-
             # ── Stop loss ─────────────────────────────────────────
             if self.trail_tracker.is_sl_hit(current_premium):
                 self.exit_position(
                     f"STOP_LOSS (mark={current_premium:.2f} >= SL={self.trail_tracker.sl_premium:.2f})"
+                )
+                return
+
+            # ── Layer 2: Pre-liquidation safety exit ──────────────
+            # LAST RESORT — only fires if a gap move skips past the
+            # software SL entirely. Trigger = 97% of liq price so it
+            # sits BETWEEN the SL and the liquidation price.
+            # Correct order: SL (586) → pre-liq (607) → liq (626)
+            if self.liq_price and current_premium >= self.liq_price * 0.97:
+                logger.critical(
+                    f"PRE-LIQ SAFETY EXIT | mark={current_premium:.2f} >= "
+                    f"97% of liq={self.liq_price:.2f} "
+                    f"(trigger={self.liq_price * 0.97:.2f}) | "
+                    f"SL was {self.trail_tracker.sl_premium:.2f} — gap move skipped it"
+                )
+                self.trade_logger.log_event(
+                    "PRE_LIQ_SAFETY",
+                    f"mark={current_premium:.2f} liq={self.liq_price:.2f} "
+                    f"trigger={self.liq_price * 0.97:.2f}"
+                )
+                self.exit_position(
+                    f"PRE_LIQ_SAFETY (mark={current_premium:.2f} >= "
+                    f"97%_of_liq={self.liq_price * 0.97:.2f})"
                 )
                 return
 

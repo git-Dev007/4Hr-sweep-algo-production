@@ -84,7 +84,7 @@ TRAIL_STEPS = [
 ]
 
 # ----- Polling Intervals -----
-PNL_CHECK_INTERVAL = int(os.getenv("PNL_CHECK_INTERVAL", "5"))    # seconds
+PNL_CHECK_INTERVAL = int(os.getenv("PNL_CHECK_INTERVAL", "2"))    # seconds (reduced from 5 to catch fast moves)
 ORDER_WAIT_TIMEOUT = int(os.getenv("ORDER_WAIT_TIMEOUT", "30"))   # seconds
 
 # ----- API Retry Settings -----
@@ -97,9 +97,3 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # ----- Contract Details -----
 CONTRACT_VALUE = float(os.getenv("CONTRACT_VALUE", "0.001"))  # BTC per contract
-
-# ----- Liquidation Safety -----
-# Emergency soft exit threshold: exit if mark price reaches entry × LIQ_SAFETY_MULT
-# At 200x leverage BTC options, liq ≈ entry × 1.44; we exit at 1.40 (before liq)
-# Hard stop order is ALSO placed on exchange at the SL level as primary protection
-LIQ_SAFETY_MULT = float(os.getenv("LIQ_SAFETY_MULT", "1.40"))

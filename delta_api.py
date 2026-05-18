@@ -236,13 +236,43 @@ class DeltaExchangeAPI:
         logger.info(f"Order placed: id={result.get('id')} state={result.get('state')}")
         return result
 
+    def place_stop_order(self, product_id, size, side, stop_price, reduce_only=True):
+        """
+        Place an exchange-native stop-market order (stop_loss_order).
+        Fires server-side when mark_price crosses stop_price — independent
+        of the algo process being alive.
+
+        Args:
+            product_id: int — the option product id
+            size:       int — number of contracts
+            side:       'buy' (to close a short) or 'sell'
+            stop_price: float — trigger price (mark price level)
+            reduce_only: bool — always True for a protective stop
+        """
+        payload = {
+            "product_id":   product_id,
+            "size":         size,
+            "side":         side,
+            "order_type":   "stop_loss_order",
+            "stop_price":   str(round(stop_price, 2)),
+            "reduce_only":  reduce_only,
+        }
+        logger.info(f"Placing exchange stop order: {payload}")
+        result = self._post("/v2/orders", payload=payload)
+        logger.info(
+            f"Exchange stop order placed: id={result.get('id')} "
+            f"stop_price={stop_price:.2f}"
+        )
+        return result
+
+    def cancel_order(self, order_id, product_id):
+        """Cancel a specific order by id."""
+        payload = {"id": order_id, "product_id": product_id}
+        logger.info(f"Cancelling order id={order_id}")
+        return self._delete("/v2/orders", payload=payload)
+
     def get_order(self, order_id):
         return self._get(f"/v2/orders/{order_id}", auth=True)
-
-    def cancel_order(self, order_id):
-        """Cancel a specific order by ID."""
-        logger.info(f"Cancelling order id={order_id}")
-        return self._delete(f"/v2/orders/{order_id}", payload={"id": order_id})
 
     def cancel_all_orders(self, product_id=None, contract_types=None):
         payload = {}
@@ -251,26 +281,6 @@ class DeltaExchangeAPI:
         if contract_types:
             payload["contract_types"] = contract_types
         return self._delete("/v2/orders/all", payload=payload)
-
-    def place_stop_order(self, product_id, size, side, stop_price, reduce_only=True):
-        """
-        Place a stop market order on the exchange (hard stop loss).
-        For a short option position, side='buy' with reduce_only=True.
-        stop_price: the premium level that triggers the buy-to-close.
-        """
-        payload = {
-            "product_id": product_id,
-            "size": size,
-            "side": side,
-            "order_type": "stop_market_order",
-            "stop_price": str(round(stop_price, 2)),
-        }
-        if reduce_only:
-            payload["reduce_only"] = True
-        logger.info(f"Placing stop order: product={product_id} stop_price={stop_price} side={side}")
-        result = self._post("/v2/orders", payload=payload)
-        logger.info(f"Stop order placed: id={result.get('id')} stop_price={stop_price}")
-        return result
 
     # ----------------------------------------------------------------
     # Leverage

@@ -41,7 +41,7 @@ from settings import (
     SESSION_END_HOUR, SESSION_END_MINUTE,
     TARGET_PREMIUMS, PREMIUM_TOLERANCE, SL_MULTIPLIERS, TRAIL_STEPS,
     PNL_CHECK_INTERVAL, ORDER_WAIT_TIMEOUT, MAX_RETRIES, RETRY_DELAY,
-    LOG_DIR, LOG_LEVEL, CONTRACT_VALUE,
+    LOG_DIR, LOG_LEVEL, CONTRACT_VALUE, LIQ_SAFETY_MULT,
 )
 from delta_api import DeltaExchangeAPI
 from trade_logger import TradeLogger
@@ -431,6 +431,7 @@ class SweepAlgo:
         self.spot_at_entry = 0.0
         self.nearest_expiry = None
         self.is_position_open = False
+        self.hard_sl_order_id = None    # Exchange-side stop order ID
 
     def _reset_daily_state(self):
         """Reset per-day counters at the start of each new trading day."""
@@ -442,6 +443,53 @@ class SweepAlgo:
             f"Daily state reset for {today} | "
             "max_trades=2, loss_stop=enabled"
         )
+
+    def _place_hard_sl_order(self, sl_level):
+        """
+        Place a stop market BUY order on the exchange at sl_level.
+        This is a hard stop — it fires even if the algo crashes or is slow.
+        Stores the order ID in self.hard_sl_order_id for later cancellation.
+        """
+        try:
+            result = self.api.place_stop_order(
+                product_id=self.product_id,
+                size=QUANTITY,
+                side="buy",
+                stop_price=sl_level,
+                reduce_only=True,
+            )
+            self.hard_sl_order_id = result.get("id")
+            logger.info(
+                f"Hard SL order placed on exchange | "
+                f"id={self.hard_sl_order_id} stop_price={sl_level:.2f}"
+            )
+            self.trade_logger.log_event(
+                "HARD_SL_PLACED",
+                f"stop_order_id={self.hard_sl_order_id} stop_price={sl_level:.2f}"
+            )
+        except Exception as e:
+            # Stop orders may not be supported for all option types.
+            # Log and continue — soft SL in monitor loop is still active.
+            logger.warning(
+                f"Hard SL order placement failed (will rely on soft SL): {e}"
+            )
+            self.hard_sl_order_id = None
+
+    def _cancel_hard_sl_order(self):
+        """Cancel the exchange-side hard SL order before closing the position."""
+        if not self.hard_sl_order_id:
+            return
+        try:
+            self.api.cancel_order(self.hard_sl_order_id)
+            logger.info(f"Hard SL order cancelled: id={self.hard_sl_order_id}")
+            self.trade_logger.log_event(
+                "HARD_SL_CANCELLED",
+                f"stop_order_id={self.hard_sl_order_id}"
+            )
+        except Exception as e:
+            logger.warning(f"Could not cancel hard SL order {self.hard_sl_order_id}: {e}")
+        finally:
+            self.hard_sl_order_id = None
 
     def now(self):
         return datetime.now(self.tz)
@@ -685,6 +733,10 @@ class SweepAlgo:
         )
         self.initial_sl = self.trail_tracker.sl_premium
 
+        # ── 9. Place hard SL order on the exchange ─────────────────
+        # This fires even if the algo crashes — primary protection against liquidation
+        self._place_hard_sl_order(self.initial_sl)
+
         logger.info(
             f"POSITION OPEN: {self.option_type} {self.option_symbol} | "
             f"entry={self.entry_premium:.2f} | SL={self.initial_sl:.2f} | "
@@ -795,6 +847,9 @@ class SweepAlgo:
             return
 
         logger.info(f"EXITING | {self.option_symbol} | Reason: {reason}")
+
+        # Cancel the exchange-side hard SL order first to avoid double-fill
+        self._cancel_hard_sl_order()
 
         # Get exit mark price before placing order
         exit_premium = self._get_current_mark_price()
@@ -968,6 +1023,20 @@ class SweepAlgo:
             if self.trail_tracker.is_sl_hit(current_premium):
                 self.exit_position(
                     f"STOP_LOSS (mark={current_premium:.2f} >= SL={self.trail_tracker.sl_premium:.2f})"
+                )
+                return
+
+            # ── Pre-liquidation emergency exit ────────────────────
+            # Fires if mark price reaches entry × LIQ_SAFETY_MULT (default 1.40)
+            # This is a last-resort soft layer below the exchange hard SL order
+            liq_safety_level = self.entry_premium * LIQ_SAFETY_MULT
+            if current_premium >= liq_safety_level:
+                logger.critical(
+                    f"PRE-LIQ EMERGENCY EXIT | mark={current_premium:.2f} >= "
+                    f"safety={liq_safety_level:.2f} (entry={self.entry_premium:.2f} × {LIQ_SAFETY_MULT})"
+                )
+                self.exit_position(
+                    f"PRE_LIQ_SAFETY (mark={current_premium:.2f} >= {liq_safety_level:.2f})"
                 )
                 return
 

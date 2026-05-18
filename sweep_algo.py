@@ -56,14 +56,20 @@ def setup_logging():
     today = datetime.now().strftime("%Y-%m-%d")
     log_file = log_dir / f"sweep_algo_{today}.log"
     fmt = "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
-    logging.basicConfig(
-        level=getattr(logging, LOG_LEVEL, logging.INFO),
-        format=fmt,
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout),
-        ],
-    )
+
+    # Get root logger and clear any existing handlers to prevent duplicate lines
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+
+    formatter = logging.Formatter(fmt)
+    fh = logging.FileHandler(log_file)
+    fh.setFormatter(formatter)
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(formatter)
+    root.addHandler(fh)
+    root.addHandler(sh)
+
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     return log_file
 

@@ -59,12 +59,17 @@ def setup_logging():
 
     # Get root logger and clear any existing handlers to prevent duplicate lines
     root = logging.getLogger()
-    root.handlers.clear()
+    # Remove ALL existing handlers (prevents duplicates when restarting)
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+        h.close()
     root.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
     formatter = logging.Formatter(fmt)
-    fh = logging.FileHandler(log_file)
+    # File handler — writes to daily log file
+    fh = logging.FileHandler(log_file, mode="a", encoding="utf-8")
     fh.setFormatter(formatter)
+    # Console handler — stdout only (no file duplication)
     sh = logging.StreamHandler(sys.stdout)
     sh.setFormatter(formatter)
     root.addHandler(fh)
